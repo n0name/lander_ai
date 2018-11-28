@@ -4,6 +4,7 @@ import random
 from pygame.locals import *
 from math2d import *
 from math2d.shapes import Segment2D
+import neat
 
 def to_rect(pos, w, h):
     r = Rect(0, 0, 0, 0)
@@ -23,6 +24,7 @@ def does_intersect(rect, seg):
         if len(seg.intersect_with(s)) > 0:
             return True
     return False
+
 
 class FireParticle:
 
@@ -61,13 +63,14 @@ class Fire:
             ptcl.draw(screen)
 
 class Ship:
-    def __init__(self, pos, maxfuel):
+    def __init__(self, pos, maxfuel, *, color=(0, 200, 0)):
         self.pos = pos
         self.vel = Vec2d(0, 0)
         self.thrust = 0
         self.angle = Angle(deg=90)
         self.fuel = maxfuel
         self.maxFuel = maxfuel
+        self.color = color
 
         self.halfSizeX = 25
         self.halfSizeY = 12
@@ -87,7 +90,7 @@ class Ship:
         vtc.append(Vec2d(self.halfSizeX, self.halfSizeY).rotated(-self.angle.deg) + pos)
         vtc.append(Vec2d(self.halfSizeX, -self.halfSizeY).rotated(-self.angle.deg) + pos)
         vtc.append(Vec2d(-self.halfSizeX, -self.halfSizeY).rotated(-self.angle.deg) + pos)
-        pygame.draw.polygon(screen, (0,200,0), vtc, 0)
+        pygame.draw.polygon(screen, self.color, vtc, 0)
 
         fillvtc = []
         gaugeLen = 2*self.halfSizeX*(1-(self.fuel/self.maxFuel))
@@ -117,7 +120,6 @@ class Ship:
 
         if not self.landed:
             self.fire.update(self.thrust, self.pos + Vec2d(25/2, 50/2), self.angle.deg)
-        
 
 class Level:
     @staticmethod
@@ -162,7 +164,6 @@ class Level:
         if len(self.ceiling) > 1:
             pygame.draw.polygon(screen, color, list(map(lambda p: p.as_int_tup(), self.ceiling)))
 
-
 class Game:
     def __init__(self, level, ships):
         self.level = level
@@ -206,6 +207,17 @@ class Game:
         for s in self.ships:
             s.draw(screen)
 
+
+class AiShip(Ship):
+    def __init__(self, pos, maxfuel, *, color=(0, 200, 0)):
+        super().__init__(pos, maxfuel, color=color)
+        self.genome = neat.Genome(3, 2)
+
+    def update(self, dt):
+        angle, thrust = self.genome.eval([self.vel.x, self.vel.y, self.fuel])
+
+        super().update(dt)
+
 def draw_text(screen, font, text, pos):
     surf = font.render(text, False, (0, 255, 0))
     screen.blit(surf, pos)
@@ -229,10 +241,12 @@ def main():
     pygame.font.init()
     screen = pygame.display.set_mode(screen_size.as_int_tup())
 
-    ship = Ship(screen_size / 2, 50)
+    ship = Ship(screen_size / 2, 50, color=(20, 190, 250))
     level = Level.generate(screen_size.x, 2 * screen_size.y // 3, screen_size.y, 10)
 
-    game = Game(level, [ship])
+    game = Game(level, [])
+    if ship is not None:
+        game.ships.append(ship)
     clock = pygame.time.Clock()
 
 
@@ -274,8 +288,8 @@ def main():
 
         # Update
         game.update(dt)
-        if len(game.ships) == 0:
-            mainloop = False
+        # if len(game.ships) == 0:
+        #     mainloop = False
 
         # Drawing
         screen.fill((0, 0, 33))
