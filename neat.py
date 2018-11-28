@@ -16,7 +16,6 @@ class Connection:
     def __init__(self, in_node, out_node, weight, enabled, innovation):
         self.in_node = in_node
         self.out_node = out_node
-        self.in_node.connected_to.add(self.out_node)
         self.weight = weight
         self.enabled = enabled
         self.innovation = innovation
@@ -26,9 +25,9 @@ class Genome:
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
         self.nodes = []
-        for _ in num_inputs:
+        for _ in range(num_inputs):
             self.nodes.append(Node(NodeType.INPUT))
-        for _ in num_outputs:
+        for _ in range(num_outputs):
             self.nodes.append(Node(NodeType.OUTPUT))
         
         self.connections = []
@@ -44,6 +43,8 @@ class Genome:
         return self.cur_innovation
 
     def random_enabled_connection(self, max_tries):
+        if len(self.connections) == 0:
+            return None
         conn = random.choice(self.connections)
         tries = max_tries
         while not conn.enabled and tries >= 0:
@@ -60,10 +61,14 @@ class Genome:
         if conn is None:
             return False
         conn.enabled = False
-        self.nodes.append(Node(NodeType.HIDDEN))
+        new_node = Node(NodeType.HIDDEN)
+        self.nodes.append(new_node)
         new_node_id = len(self.nodes) - 1
         self.connections.append(Connection(conn.in_node, new_node_id, 1, True, self.get_innovation()))
         self.connections.append(Connection(new_node_id, conn.out_node, conn.weight, True, self.get_innovation()))
+        new_node.connected_to.add(conn.out_node)
+        self.nodes[conn.in_node].connected_to.add(new_node_id)
+
         return True
 
     def add_connection(self):
@@ -79,6 +84,7 @@ class Genome:
             return False
         (in_node, out_node) = random.choice(possible_connections)
         self.connections.append(Connection(in_node, out_node, random.random(), True, self.get_innovation()))
+        self.nodes[in_node].connected_to.add(out_node)
         return True
 
     def modify_weight(self, max_tries=4):
@@ -93,14 +99,15 @@ class Genome:
 
     def mutate(self):
         chance = random.random()
-        if chance <= 0.05 and self.connections > 0:            # 5% chance
+        if chance <= 0.05:                  # 5% chance
             if not self.add_node():
                 self.add_connection()
-        elif chance <= 0.2:                                    # 15% chance 
+        elif chance <= 0.2:                 # 15% chance 
             if not self.add_connection():
                 self.modify_weight()
         else:
-            self.modify_weight()
+            if not self.modify_weight():
+                self.add_connection()
 
     def eval(self, vals):
         if len(vals) != self.num_inputs:
@@ -114,6 +121,6 @@ class Genome:
         for c in self.connections:
             if not c.enabled:
                 continue
-            c.out_node.value += c.in_node.value * c.weight
+            self.nodes[c.out_node].value += self.nodes[c.in_node].value * c.weight
 
-        return tuple([n.value for n in self.nodes[self.num_inputs: self.num_outputs]])
+        return tuple([n.value for n in self.nodes[self.num_inputs: self.num_inputs + self.num_outputs]])
