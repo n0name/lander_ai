@@ -6,11 +6,17 @@ class NodeType(Enum):
     OUTPUT = 1
     HIDDEN = 2
 
+
 class Node:
     def __init__(self, tp):
         self.tp = tp
         self.value = 0
         self.connected_to = set()
+    
+    def __repr__(self):
+        return "Node: {}".format(self.tp)
+
+    __str__ = __repr__
 
 class Connection:
     def __init__(self, in_node, out_node, weight, enabled, innovation):
@@ -20,10 +26,17 @@ class Connection:
         self.enabled = enabled
         self.innovation = innovation
 
+    def __repr__(self):
+        return "{} -> {} [w: {}, e: {}, i: {}]".format(self.in_node, self.out_node, self.weight, self.enabled, self.innovation)
+
+    __str__ = __repr__
+
 class Genome:
-    def __init__(self, num_inputs, num_outputs):
+    def __init__(self, num_inputs, num_outputs, *, node_mut_rate=0.05, con_mut_rate=0.15):
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
+        self.node_mut_th = node_mut_rate
+        self.con_mut_th = con_mut_rate + node_mut_rate
         self.nodes = []
         for _ in range(num_inputs):
             self.nodes.append(Node(NodeType.INPUT))
@@ -37,6 +50,14 @@ class Genome:
         pass
     def load(self, file_name):
         pass
+
+    def __repr__(self):
+        base_str = "Nodes: {}, Connections: {}".format(len(self.nodes), len(self.connections))
+        node_txt = ', '.join(["{}: {}".format(i, n) for i,n in enumerate(self.nodes)])
+        connection_txt = ', '.join(map(str, self.connections))
+        return "\n".join([base_str,node_txt, connection_txt])
+
+    __str__ = __repr__
 
     def get_innovation(self):
         self.cur_innovation += 1
@@ -99,10 +120,10 @@ class Genome:
 
     def mutate(self):
         chance = random.random()
-        if chance <= 0.05:                  # 5% chance
+        if chance <= self.node_mut_th:
             if not self.add_node():
                 self.add_connection()
-        elif chance <= 0.2:                 # 15% chance 
+        elif chance <= self.con_mut_th:
             if not self.add_connection():
                 self.modify_weight()
         else:
@@ -117,6 +138,9 @@ class Genome:
 
         for v, n in zip(vals, self.nodes[:self.num_inputs]):
             n.value = v
+
+        for n in self.nodes[self.num_inputs:self.num_inputs + self.num_outputs]:
+            n.value = 0
 
         for c in self.connections:
             if not c.enabled:

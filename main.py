@@ -79,6 +79,7 @@ class Ship:
         self.halfSizeY = 12
 
         self.landed = False
+        self.dead = False
 
         self.fire = Fire()
 
@@ -106,7 +107,7 @@ class Ship:
         # Debug draw bound rect
         # pygame.draw.rect(screen, (255, 0, 0), br, 2)
 
-        if not self.landed:
+        if not self.landed and not self.dead:
             self.fire.draw(screen)
 
     def update(self, dt):
@@ -121,7 +122,7 @@ class Ship:
         self.vel += self.force * dt# we asume that mass == 1
         self.fuel -= self.thrust * dt
 
-        if not self.landed:
+        if not self.landed and not self.dead:
             self.fire.update(self.thrust, self.pos + Vec2d(25/2, 50/2), self.angle.deg)
 
 class Level:
@@ -171,22 +172,40 @@ class Level:
             pygame.draw.polygon(screen, color, list(map(lambda p: p.as_int_tup(), self.ceiling)))
 
 class Game:
-    def __init__(self, level, ships):
+    def __init__(self, level, ships, area):
         self.level = level
         self.ships = ships
+        self.area = area
         self.dead = []
 
 
     def check_landed(self, ship):
-        print("angle", ship.angle.deg)
-        print("velocity", ship.vel)
+        # print("angle", ship.angle.deg)
+        # print("velocity", ship.vel)
         angle_check = abs(ship.angle.deg - 90) < 2
         vertical_speed_check = abs(ship.vel.y) < 20
         horizontal_speed_check = abs(ship.vel.x) < 10
         return angle_check and vertical_speed_check and horizontal_speed_check
 
     def check_collisions(self):
+        # Check if outside
         to_remove = set()
+
+        for s in self.ships:
+            if s.pos.x < 0 or s.pos.x > self.area.x:
+                to_remove.add(s)
+            elif s.pos.y < 0 or s.pos.y > self.area.y:
+                to_remove.add(s)
+
+        for s in to_remove:
+            self.ships.remove(s)
+            if not s.landed:
+                s.dead = True
+            self.dead.append(s)
+
+        # Check if colided with ground
+        to_remove = set()
+
         for p1, p2 in zip(self.level.floor, self.level.floor[1:]):
             seg = Segment2D(p1, p2)
             for s in self.ships:
@@ -198,6 +217,8 @@ class Game:
 
         for s in to_remove:
             self.ships.remove(s)
+            if not s.landed:
+                s.dead = True
             self.dead.append(s)
 
     def update(self, dt):
@@ -220,23 +241,28 @@ class AiShip(Ship):
     def __init__(self, pos, maxfuel, *, color=(0, 200, 0), genome=None):
         super().__init__(pos, maxfuel, color=color)
         if genome is None:
-            self.genome = neat.Genome(3, 2)
+            self.genome = neat.Genome(7, 2, node_mut_rate=0.2, con_mut_rate=0.2)
         else:
             self.genome = genome
 
         self.fitness = 0
+        self.time_alive = 0
 
-    def update(self, dt):
-        new_angle, new_thrust = self.genome.eval([self.vel.x, self.vel.y, self.fuel])
+    def update_ai(self, level):
+        landing_site = level.landing_center()
+        new_angle, new_thrust = self.genome.eval([self.pos.x, self.pos.y, self.vel.x, self.vel.y, landing_site.x, landing_site.y, self.fuel])
         self.angle.deg = clamp(new_angle, 0, 180)
         self.thrust = int(clamp(new_thrust, 0, 4))
 
+    def update(self, dt):
+        self.time_alive += dt
         super().update(dt)
 
     def calculate_fitness(self, level, max_dist):
         landing_site = level.landing_center()
         dist_to_landing = (self.pos - landing_site).length
-        fitness = (max_dist - dist_to_landing) + self.fuel
+        fitness = (max_dist - dist_to_landing)# + self.fuel
+        fitness += 100 * self.time_alive
         fitness -= self.vel.length
         if self.landed:
             fitness += 9000 # yes it goes over 9000
@@ -247,19 +273,44 @@ def draw_text(screen, font, text, pos):
     surf = font.render(text, False, (0, 255, 0))
     screen.blit(surf, pos)
 
-def debug_hud(ship, screen):
+def debug_hud(ship, screen, pos=Vec2d(50, 50)):
+    size = 20
+    font = pygame.font.SysFont('Arial', size)
+    draw_text(screen, font, 'thrust: {}'.format(ship.thrust), pos.as_int_tup())
+    pos.y += size
+    draw_text(screen, font, 'velocity: {}'.format(ship.vel), pos.as_int_tup())
+    pos.y += size
+    draw_text(screen, font, 'Angle: {}'.format(ship.angle.deg), pos.as_int_tup())
+    pos.y += size
+    draw_text(screen, font, 'fuel: {}'.format(ship.fuel), pos.as_int_tup())
+
+tracked = None
+def ai_debug_hud(screen, game, generation, fitness, *, tracking=False):
+    global tracked
     size = 20
     pos = 50
     font = pygame.font.SysFont('Arial', size)
-    draw_text(screen, font, 'thrust: {}'.format(ship.thrust), (50, pos))
-    pos += size
-    draw_text(screen, font, 'velocity: {}'.format(ship.vel), (50, pos))
-    pos += size
-    draw_text(screen, font, 'Angle: {}'.format(ship.angle.deg), (50, pos))
-    pos += size
-    draw_text(screen, font, 'fuel: {}'.format(ship.fuel), (50, pos))
 
-def spawn_and_reset(screen, game, cnt):
+    text = [
+        'Generation: {}'.format(generation),
+        'Fitness: {}'.format(fitness),
+        'Alive: {}'.format(len(game.ships))
+    ]
+
+    for t in text:
+        draw_text(screen, font, t, (50, pos))
+        pos += size
+
+    if tracking:
+        if tracked is None or tracked.dead:
+            if tracked is not None:
+                tracked.color = (20, 190, 250)
+            tracked = random.choice(game.ships)
+            tracked.color = (0, 255, 0)
+
+        debug_hud(tracked, screen, Vec2d(screen.get_rect().width - 400, 50))
+
+def spawn_and_reset(screen, game, cnt, *, reset_level=False):
     screen_rect = screen.get_rect()
     if cnt < 3:
         cnt = 3
@@ -269,14 +320,24 @@ def spawn_and_reset(screen, game, cnt):
             s.calculate_fitness(game.level, screen_rect.width)
             ai_ships.append(s)
 
+    screen_size = Vec2d(*screen_rect.size)
+
     game.dead = []
     game.ships = []
+    if reset_level:
+        game.level = Level.generate(screen_size.x, 2 * screen_size.y // 3, screen_size.y, 10)
     reproduceable = sorted(ai_ships, key=lambda s: s.fitness, reverse=True)[:4] # the top 3
+
+    tf = reproduceable[0].fitness
+    print(reproduceable[0].genome)
+
     for s in reproduceable:
         for _ in range(cnt // 3):
             new_genome = copy.deepcopy(s.genome)
             new_genome.mutate()
-            game.ships.append(AiShip(Vec2d(*screen_rect.center), s.maxFuel, color=s.color, genome=new_genome))
+            game.ships.append(AiShip(Vec2d(*screen_rect.center), s.maxFuel, color=(20, 190, 250), genome=new_genome))
+
+    return tf
 
 def main():
     screen_size = Vec2d(1280, 720)
@@ -287,12 +348,13 @@ def main():
     ship = None #Ship(screen_size / 2, 50, color=(20, 190, 250))
     level = Level.generate(screen_size.x, 2 * screen_size.y // 3, screen_size.y, 10)
 
-    game = Game(level, [])
+    game = Game(level, [], screen_size)
     if ship is not None:
         game.ships.append(ship)
 
-
-    generation_cnt = 10
+    generation = 0
+    top_fitness = 0
+    generation_cnt = 50
     for _ in range(generation_cnt):
         s = AiShip(screen_size / 2, 50, color=(20, 190, 250))
         s.genome.mutate()
@@ -337,13 +399,21 @@ def main():
         if dt > 1:
             dt = 0.017
 
+
         # Update
+        for s in game.ships:
+            if isinstance(s, AiShip):
+                s.update_ai(game.level)
         game.update(dt)
         if len(game.ships) == 0:
-            spawn_and_reset(screen, game, generation_cnt)
+            print('=============================================')
+            print('Generation:', generation)
+            generation += 1
+            top_fitness = spawn_and_reset(screen, game, generation_cnt)
 
         # Drawing
         screen.fill((0, 0, 33))
+        ai_debug_hud(screen, game, generation, top_fitness, tracking=True)
 
         for star in stars:
             pygame.draw.circle(screen, (255, 255, 255), star.as_int_tup(), 2)
