@@ -26,6 +26,11 @@ class Segment2D:
         tv = self.tangent_vector()
         return v(-tv.y, tv.x)
 
+    def is_pt_on(self, pt):
+        to_pt = pt - self.beg
+        tan = self.tangent_vector()
+        return abs(to_pt.dot(tan) - 1) < 0.0001 and to_pt.length <= tan.length
+
     def intersect_with(self, other):
         if isinstance(other, Segment2D):
             v1 = self.tangent_vector()
@@ -40,6 +45,13 @@ class Segment2D:
                 if self.beg.get_distance(cross) <= self.length() and other.beg.get_distance(cross) <= other.length():
                     return [cross]
             
+            return []
+        elif isinstance(other, Ray2D):
+            r1 = Ray2D(self.beg, self.tangent_vector())
+            cross = r1.intersect(other)
+            if cross is not None:
+                if self.is_pt_on(cross):
+                    return [cross]
             return []
         else:
             raise ValueError('Unsupported type')

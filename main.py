@@ -2,7 +2,8 @@ import math
 import pygame
 import random
 from pygame.locals import *
-from math2d import *
+from math2d import Vec2d, Angle
+from math2d.ray2d import Ray2D
 from math2d.shapes import Segment2D
 import neat
 import copy
@@ -100,12 +101,16 @@ class Ship:
     def draw(self, screen):
         br = self.get_bound_rect()
         pos = br.center
+        if self.dead:
+            draw_color = (128, 128, 128)
+        else:
+            draw_color = self.color
         vtc = []
         vtc.append(Vec2d(-self.halfSizeX, self.halfSizeY).rotated(-self.angle.deg) + pos)
         vtc.append(Vec2d(self.halfSizeX, self.halfSizeY).rotated(-self.angle.deg) + pos)
         vtc.append(Vec2d(self.halfSizeX, -self.halfSizeY).rotated(-self.angle.deg) + pos)
         vtc.append(Vec2d(-self.halfSizeX, -self.halfSizeY).rotated(-self.angle.deg) + pos)
-        pygame.draw.polygon(screen, self.color, vtc, 0)
+        pygame.draw.polygon(screen, draw_color, vtc, 0)
 
         fillvtc = []
         gaugeLen = 2*self.halfSizeX*(1-(self.fuel/self.maxFuel))
@@ -241,10 +246,11 @@ class Game:
 
     def draw(self, screen):
         self.level.draw(screen)
-        for s in self.ships:
-            s.draw(screen)
 
         for s in self.dead:
+            s.draw(screen)
+
+        for s in self.ships:
             s.draw(screen)
 
 class AiShip(Ship):
@@ -260,9 +266,23 @@ class AiShip(Ship):
 
     def update_ai(self, level):
         landing_site = level.landing_center()
-        new_angle, new_thrust = self.genome.eval([self.pos.x, self.pos.y, self.vel.x, self.vel.y, landing_site.x, landing_site.y, self.thrust])
+        r = Ray2D(self.pos, Vec2d(0, 1))
+        height = 0
+        for p1, p2 in zip(level.floor, level.floor[1:]):
+            seg = Segment2D(p1, p2)
+            crosses = seg.intersect_with(r)
+            if len(crosses) == 1:
+                height = self.pos.get_distance(crosses[0])
+                break
+
+        new_angle, new_thrust = self.genome.eval([self.pos.x, self.pos.y, self.vel.x, self.vel.y, landing_site.x, landing_site.y, height])
         self.angle.deg = clamp(new_angle, 0, 180)
-        self.thrust = int(clamp(new_thrust, 0, 4))
+        if new_thrust > 4:
+            new_thrust = 4
+        if new_thrust < 0:
+            new_thrust = 0
+        self.thrust = int(new_thrust)
+        # self.thrust = abs(int(clamp(new_thrust, 0, 4)))
 
     def update(self, dt):
         self.time_alive += dt
@@ -389,6 +409,7 @@ def main():
 
     fitness_history = []
 
+    asap = False
     mainloop = True
     while mainloop:
         for event in pygame.event.get():
@@ -398,6 +419,8 @@ def main():
                 if event.key == pygame.K_ESCAPE:
                     mainloop = False # user pressed ESC
             elif event.type == pygame.KEYUP:
+                if event.key == pygame.K_SPACE:
+                    asap = not asap
                 if ship is not None: # Debug stuff
                     if event.key == pygame.K_UP:
                         if ship.thrust < 4:
@@ -440,7 +463,10 @@ def main():
         if ship is not None:
             debug_hud(ship, screen)
         pygame.display.flip()
-        clock.tick(60)
+        if not asap:
+            clock.tick(60)
+        else:
+            clock.tick(999)
     
     # print evolution history
     pygame.quit()

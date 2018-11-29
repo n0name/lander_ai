@@ -104,7 +104,7 @@ class Genome:
         if len(possible_connections) == 0:
             return False
         (in_node, out_node) = random.choice(possible_connections)
-        self.connections.append(Connection(in_node, out_node, random.random(), True, self.get_innovation()))
+        self.connections.append(Connection(in_node, out_node, random.random() * 2 - 1, True, self.get_innovation()))
         self.nodes[in_node].connected_to.add(out_node)
         return True
 
@@ -113,7 +113,7 @@ class Genome:
         if conn is None:
             return False
 
-        new_weight = random.random()
+        new_weight = random.random() * 2 - 1
         mix_param = random.random() / 2 # [0, 0.5)
         conn.weight = mix_param * conn.weight + (1 - mix_param) * new_weight
         return True
