@@ -67,6 +67,7 @@ class Fire:
 
 class Ship:
     def __init__(self, pos, maxfuel, *, color=(0, 200, 0)):
+        self.start_pos = copy.copy(pos)
         self.pos = pos
         self.vel = Vec2d(0, 0)
         self.thrust = 0
@@ -82,6 +83,16 @@ class Ship:
         self.dead = False
 
         self.fire = Fire()
+
+    def reset(self):
+        self.pos = self.start_pos
+        self.vel = Vec2d(0, 0)
+        self.thrust = 0
+        self.angle = Angle(deg=90)
+        self.fuel = self.maxFuel
+        self.landed = False
+        self.dead = False
+
 
     def get_bound_rect(self):
         return to_rect(self.pos, 25, 50)
@@ -236,7 +247,6 @@ class Game:
         for s in self.dead:
             s.draw(screen)
 
-
 class AiShip(Ship):
     def __init__(self, pos, maxfuel, *, color=(0, 200, 0), genome=None):
         super().__init__(pos, maxfuel, color=color)
@@ -250,7 +260,7 @@ class AiShip(Ship):
 
     def update_ai(self, level):
         landing_site = level.landing_center()
-        new_angle, new_thrust = self.genome.eval([self.pos.x, self.pos.y, self.vel.x, self.vel.y, landing_site.x, landing_site.y, self.fuel])
+        new_angle, new_thrust = self.genome.eval([self.pos.x, self.pos.y, self.vel.x, self.vel.y, landing_site.x, landing_site.y, self.thrust])
         self.angle.deg = clamp(new_angle, 0, 180)
         self.thrust = int(clamp(new_thrust, 0, 4))
 
@@ -261,8 +271,11 @@ class AiShip(Ship):
     def calculate_fitness(self, level, max_dist):
         landing_site = level.landing_center()
         dist_to_landing = (self.pos - landing_site).length
-        fitness = (max_dist - dist_to_landing)# + self.fuel
-        fitness += 100 * self.time_alive
+        fitness = 0
+        fitness -= dist_to_landing# + self.fuel
+        fitness -= abs(90 - self.angle.deg)
+        # fitness += 10 * self.time_alive
+        fitness += self.fuel
         fitness -= self.vel.length
         if self.landed:
             fitness += 9000 # yes it goes over 9000
@@ -332,7 +345,10 @@ def spawn_and_reset(screen, game, cnt, *, reset_level=False):
     print(reproduceable[0].genome)
 
     for s in reproduceable:
-        for _ in range(cnt // 3):
+        s.reset()
+        # game.ships.append(s)
+        game.ships.append(AiShip(Vec2d(*screen_rect.center), s.maxFuel, color=(20, 190, 250), genome=copy.deepcopy(s.genome)))
+        for _ in range(cnt // 3 - 1):
             new_genome = copy.deepcopy(s.genome)
             new_genome.mutate()
             game.ships.append(AiShip(Vec2d(*screen_rect.center), s.maxFuel, color=(20, 190, 250), genome=new_genome))
@@ -371,6 +387,7 @@ def main():
         )
         stars.append(star)
 
+    fitness_history = []
 
     mainloop = True
     while mainloop:
@@ -409,7 +426,8 @@ def main():
             print('=============================================')
             print('Generation:', generation)
             generation += 1
-            top_fitness = spawn_and_reset(screen, game, generation_cnt)
+            top_fitness = spawn_and_reset(screen, game, generation_cnt, reset_level=generation % 5 == 0)
+            fitness_history.append(top_fitness)
 
         # Drawing
         screen.fill((0, 0, 33))
@@ -423,6 +441,16 @@ def main():
             debug_hud(ship, screen)
         pygame.display.flip()
         clock.tick(60)
+    
+    # print evolution history
+    pygame.quit()
+    import matplotlib
+    from matplotlib import pyplot as plt
+    matplotlib.style.use('dark_background')
+    print("Fitness:", fitness_history)
+    plt.figure(figsize=(20, 15))
+    plt.plot(fitness_history)
+    plt.show()
 
 if __name__ == "__main__":
     main()
