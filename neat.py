@@ -1,3 +1,4 @@
+import math
 import random
 from enum import Enum
 
@@ -15,6 +16,10 @@ class Node:
     
     def __repr__(self):
         return "Node: {}".format(self.tp)
+
+    def activate(self):
+        # return self.value
+        return 1 / (1 + math.exp(-3 * self.value))
 
     __str__ = __repr__
 
@@ -60,7 +65,7 @@ class Genome:
     __str__ = __repr__
 
     def get_innovation(self):
-        self.cur_innovation += 1
+        # self.cur_innovation += 1
         return self.cur_innovation
 
     def random_enabled_connection(self, max_tries):
@@ -119,6 +124,7 @@ class Genome:
         return True
 
     def mutate(self):
+        self.cur_innovation += 1
         chance = random.random()
         if chance <= self.node_mut_th:
             if not self.add_node():
@@ -130,21 +136,50 @@ class Genome:
             if not self.modify_weight():
                 self.add_connection()
 
+
+    def mate(self, other):
+        if self.__class__ != other.__class__:
+            raise ValueError("Interspecies mating is prohibited!")
+
+        child = Genome(self.num_inputs, self.num_outputs)
+        num_hidden = max(len(self.nodes), len(other.nodes)) - (self.num_inputs + self.num_outputs)
+        for _ in range(num_hidden):
+            child.nodes.append(Node(NodeType.HIDDEN))
+        
+        gene_dict_a = {conn.inovation: conn for conn in self.connections}
+        gene_dict_b = {conn.inovation: conn for conn in other.connections}
+
+        all_keys = set(gene_dict_a.keys()) + set(gene_dict_b.keys())
+
+        for k in all_keys:
+            if k in gene_dict_a and k in gene_dict_b:
+                child.connections.append(random.choice([gene_dict_a[k], gene_dict_b[k]]))
+            elif k in gene_dict_a:
+                child.connections.append(gene_dict_a[k])
+            else:
+                child.connections.append(gene_dict_b[k])
+
+        for c in child.connections:
+            child.nodes[c.in_node].add(c.out_node)
+
+        return child
+
     def eval(self, vals):
         if len(vals) != self.num_inputs:
             raise ValueError("Invalid number of parameters passed to genome")
 
         #TODO: Zero out all values ?
+        # for n in self.nodes[self.num_inputs:self.num_inputs + self.num_outputs]:
+        for n in self.nodes:
+            n.value = 0
 
         for v, n in zip(vals, self.nodes[:self.num_inputs]):
             n.value = v
 
-        for n in self.nodes[self.num_inputs:self.num_inputs + self.num_outputs]:
-            n.value = 0
 
         for c in self.connections:
             if not c.enabled:
                 continue
-            self.nodes[c.out_node].value += self.nodes[c.in_node].value * c.weight
+            self.nodes[c.out_node].value += self.nodes[c.in_node].activate() * c.weight
 
         return tuple([n.value for n in self.nodes[self.num_inputs: self.num_inputs + self.num_outputs]])

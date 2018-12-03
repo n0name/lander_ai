@@ -257,7 +257,7 @@ class AiShip(Ship):
     def __init__(self, pos, maxfuel, *, color=(0, 200, 0), genome=None):
         super().__init__(pos, maxfuel, color=color)
         if genome is None:
-            self.genome = neat.Genome(7, 2, node_mut_rate=0.2, con_mut_rate=0.2)
+            self.genome = neat.Genome(7, 2, node_mut_rate=0.1, con_mut_rate=0.2)
         else:
             self.genome = genome
 
@@ -266,16 +266,17 @@ class AiShip(Ship):
 
     def update_ai(self, level):
         landing_site = level.landing_center()
-        r = Ray2D(self.pos, Vec2d(0, 1))
-        height = 0
-        for p1, p2 in zip(level.floor, level.floor[1:]):
-            seg = Segment2D(p1, p2)
-            crosses = seg.intersect_with(r)
-            if len(crosses) == 1:
-                height = self.pos.get_distance(crosses[0])
-                break
+        # r = Ray2D(self.pos, Vec2d(0, 1))
+        # height = 0
+        # for p1, p2 in zip(level.floor, level.floor[1:]):
+        #     seg = Segment2D(p1, p2)
+        #     crosses = seg.intersect_with(r)
+        #     if len(crosses) == 1:
+        #         height = self.pos.get_distance(crosses[0])
+        #         break
 
-        new_angle, new_thrust = self.genome.eval([self.pos.x, self.pos.y, self.vel.x, self.vel.y, landing_site.x, landing_site.y, height])
+        new_angle, new_thrust = self.genome.eval([self.pos.x, self.pos.y, self.vel.x, self.vel.y, landing_site.x, landing_site.y, self.angle.deg])
+        new_angle, new_thrust = new_angle * 180, new_thrust * 5
         self.angle.deg = clamp(new_angle, 0, 180)
         if new_thrust > 4:
             new_thrust = 4
@@ -292,11 +293,14 @@ class AiShip(Ship):
         landing_site = level.landing_center()
         dist_to_landing = (self.pos - landing_site).length
         fitness = 0
-        fitness -= dist_to_landing# + self.fuel
-        fitness -= abs(90 - self.angle.deg)
-        # fitness += 10 * self.time_alive
-        fitness += self.fuel
+        fitness -= (dist_to_landing ** 2) / 100
+        fitness -= abs(90 - self.angle.deg) * 50
+        if self.fuel == self.maxFuel:
+            fitness -= 1000
+        else:
+            fitness += self.fuel
         fitness -= self.vel.length
+        fitness -= 10 * len(self.genome.nodes)
         if self.landed:
             fitness += 9000 # yes it goes over 9000
         
@@ -344,6 +348,7 @@ def ai_debug_hud(screen, game, generation, fitness, *, tracking=False):
         debug_hud(tracked, screen, Vec2d(screen.get_rect().width - 400, 50))
 
 def spawn_and_reset(screen, game, cnt, *, reset_level=False):
+    global tracked
     screen_rect = screen.get_rect()
     if cnt < 3:
         cnt = 3
@@ -373,6 +378,8 @@ def spawn_and_reset(screen, game, cnt, *, reset_level=False):
             new_genome.mutate()
             game.ships.append(AiShip(Vec2d(*screen_rect.center), s.maxFuel, color=(20, 190, 250), genome=new_genome))
 
+    tracked = game.ships[0]
+
     return tf
 
 def main():
@@ -395,8 +402,8 @@ def main():
         s = AiShip(screen_size / 2, 50, color=(20, 190, 250))
         s.genome.mutate()
         game.ships.append(s)
-    clock = pygame.time.Clock()
 
+    # clock = pygame.time.Clock()
 
     num_stars = 100
     stars = []
@@ -435,9 +442,9 @@ def main():
                         if ship.angle.deg > 0:
                             ship.angle.deg = ship.angle.deg - 10
 
-        dt = clock.get_time() / 1000
-        if dt > 1:
-            dt = 0.017
+        # dt = clock.get_time() / 1000
+        # if dt > 1:
+        dt = 0.033
 
 
         # Update
@@ -449,7 +456,8 @@ def main():
             print('=============================================')
             print('Generation:', generation)
             generation += 1
-            top_fitness = spawn_and_reset(screen, game, generation_cnt, reset_level=generation % 5 == 0)
+            # top_fitness = spawn_and_reset(screen, game, generation_cnt, reset_level=generation % 5 == 0)
+            top_fitness = spawn_and_reset(screen, game, generation_cnt, reset_level=False)
             fitness_history.append(top_fitness)
 
         # Drawing
@@ -463,10 +471,9 @@ def main():
         if ship is not None:
             debug_hud(ship, screen)
         pygame.display.flip()
-        if not asap:
-            clock.tick(60)
-        else:
-            clock.tick(999)
+        # if not asap:
+        #     clock.tick(60)
+        
     
     # print evolution history
     pygame.quit()
